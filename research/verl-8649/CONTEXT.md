@@ -19,7 +19,9 @@
 
 ## 下次恢复
 
-建档后的第一项工作是打开固定 SHA 的 FSDP engine，标出 fused forward 的第一个输入与下游消费者。把路径、符号、行号和仍未知的契约写入 [DESIGN](DESIGN.md)。后续进度以最新的 SESSION_LOG 为准。
+W1 已核实 Qwen3.5 普通 fused head 收到完整 hidden_states，engine 按完整 offsets 重建输出，响应切片读取 [E−R−1,E−1)。[源码证据](DESIGN.md) 解释了首个响应为何对应最后一个 prompt 行。
+
+下一晚唯一任务：从 policy loss 中找到 no_padding_2_padding 的实际调用者，分别标出 logprob、entropy 在 response_mask 之前的读取点，保存调用者的行号链接。 近期运行记录见 [SESSION_LOG](SESSION_LOG.md)。
 
 ## 第二期候选
 
