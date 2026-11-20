@@ -28,9 +28,20 @@
 
 抓取一条 actor update，从 engine 输入一直跟到 PPO/GRPO loss 的读取点。逐处回填实际的文件与 symbol；同名函数或历史实现要与当前运行配置核对。
 
-| 调用者 → 被调者 | 行号 permalink | 实际输入/输出与坐标系 | 仍需验证 |
-| --- | --- | --- | --- |
-| 待 W1 首轮定位 | 待填 | 待填 | 输出裁切、因果 shift、fallback 和梯度归约 |
+## W1 首次源码追踪 · 2026-11-20
+
+基线为 a4e0dd2。下表是代码阅读结果。真实训练配置命中哪个分支、数值误差和性能仍需实测。
+
+| 边界 | 已核实的行为 | 固定版本的源码 |
+| --- | --- | --- |
+| FSDP engine → 模型 | remove-padding 路径将 input_ids.values() 整理为 [1,T]，全局 roll(-1) 构造 labels；fused 分支显式传入 shift_labels。SP 时全局 roll 先于切分。 | [打包和 roll](https://github.com/zincsabian/verl/blob/a4e0dd2188e3dd458a2cbb097c03d975ca77f159/verl/workers/engine/fsdp/transformer_impl.py#L1134-L1155) · [传入 labels](https://github.com/zincsabian/verl/blob/a4e0dd2188e3dd458a2cbb097c03d975ca77f159/verl/workers/engine/fsdp/transformer_impl.py#L1269-L1286) |
+| Qwen3.5 backbone → LM head | 普通 Torch fused 分支把 outputs[0] 的 hidden_states、lm_head.weight 和 rolled_labels 交给 FusedLinearForPPO，调用前没有选取响应行。top-k 另有分支。Triton 的 linear_cross_entropy 同样接收 hidden_states。 | [Torch backbone](https://github.com/zincsabian/verl/blob/a4e0dd2188e3dd458a2cbb097c03d975ca77f159/verl/models/transformers/qwen3_5.py#L596-L610) · [权重、top-k 与普通 head](https://github.com/zincsabian/verl/blob/a4e0dd2188e3dd458a2cbb097c03d975ca77f159/verl/models/transformers/qwen3_5.py#L614-L655) · [Triton head](https://github.com/zincsabian/verl/blob/a4e0dd2188e3dd458a2cbb097c03d975ca77f159/verl/models/transformers/qwen3_5.py#L696-L719) |
+| 模型 → engine → loss callable | engine 取 log_probs、按需取 entropy，gather/unpad 后按原 input_ids.offsets() 重建 jagged tensor，再传给 loss_function。直接返回长度 K 的向量会破坏这处边界。 | [取输出](https://github.com/zincsabian/verl/blob/a4e0dd2188e3dd458a2cbb097c03d975ca77f159/verl/workers/engine/fsdp/transformer_impl.py#L1318-L1330) · [恢复 jagged 布局](https://github.com/zincsabian/verl/blob/a4e0dd2188e3dd458a2cbb097c03d975ca77f159/verl/workers/engine/fsdp/transformer_impl.py#L1400-L1415) · [实际调用](https://github.com/zincsabian/verl/blob/a4e0dd2188e3dd458a2cbb097c03d975ca77f159/verl/workers/engine/fsdp/transformer_impl.py#L1564-L1578) |
+| packed 输出 → padded responses | no_padding_2_padding 从嵌套 offsets 或 attention_mask 求长度，检查总行数和非空 prompt。若 E 是样本结束偏移、R 是真实响应长度，读取半开区间 [E−R−1,E−1)，再右填充到响应宽度。此处未使用 response_mask 的逐元素取值。 | [长度和切片](https://github.com/zincsabian/verl/blob/a4e0dd2188e3dd458a2cbb097c03d975ca77f159/verl/workers/utils/padding.py#L119-L147) |
+
+**对 W2 的约束**　先用“整个连续 response 窗口”的参考值做 oracle。多轮 response_mask 中为 0 的行也可能出现在该窗口；能否进一步跳过它们取决于后续消费者，不能仅凭 loss mask 决定。上面的 A/B 例子按源码公式恰好得到 [2,3,6]。
+
+**下一晚唯一任务**　从 policy loss 中找到 no_padding_2_padding 的实际调用者，分别标出 logprob、entropy 在 response_mask 之前的读取点，保存调用者的行号链接。
 
 ## 设计决策记录
 
