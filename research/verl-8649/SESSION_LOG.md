@@ -2,6 +2,17 @@
 
 最新记录放在顶部。优先写 SHA、测试及 Run ID，下一晚只留一个主要动作。研究代码 SHA 与记录这份日志的文档提交可以不同。
 
+## 2026-11-20 · W1 首次只读追踪
+
+| 项目 | 记录 |
+| --- | --- |
+| 今天完成 | 核实 engine 的全局 roll、Qwen3.5 Torch/Triton head 的输入、jagged 输出契约和 response 窗口。源码 permalink 见 [DESIGN](DESIGN.md)。 |
+| 当前 Git commit | 读取的训练代码固定在 [a4e0dd2](https://github.com/zincsabian/verl/commit/a4e0dd2188e3dd458a2cbb097c03d975ca77f159)。 |
+| 测试通过/失败 | 已逐份对照 8 份远端 Markdown 原文。CPU/GPU 未运行；[2,3,6] 为手算例。 |
+| 当前技术假设 | 可以跳过 prompt 投影；是否能跳过多轮 response 窗口中的 mask 孔洞仍待查。 |
+| 实验结果位置 | 本次只有源码证据，尚无 GPU Run ID。 |
+| 下一晚唯一主要任务 | 从 policy loss 中找到 no_padding_2_padding 的实际调用者，分别标出 logprob、entropy 在 response_mask 之前的读取点，保存调用者的行号链接。 |
+
 ## 2026-11-20 · 建立研究分支和追踪入口
 
 | 项目 | 记录 |
